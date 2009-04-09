@@ -1,3 +1,5 @@
+#!/usr/bin/env python2.5
+
 from lxml import html
 from collections import defaultdict
 import re
