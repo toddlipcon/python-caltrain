@@ -1,4 +1,9 @@
 #!/usr/bin/env python2.5
+__usage = """
+    --from <stop>   the stop you're traveling from
+    --to   <stop>   the stop you're traveling to
+"""
+__doc__ = __usage
 
 from lxml import html
 from collections import defaultdict
@@ -6,7 +11,8 @@ import re
 import sqlite3
 import datetime
 from datetime import time
-
+from optparse import OptionParser
+import sys
 
 WEEKDAY = 'weekday'
 WEEKEND = 'weekend'
@@ -98,7 +104,7 @@ def is_holiday(date):
     (12, 25)]
 # TODO add memorial day and thanksgiving
 
-def get_schedule_between(conn, from_stop, to_stop, direction):
+def get_schedule_between(conn, from_stop, to_stop):
   today = datetime.date.today()
   if is_weekday(today) and not is_holiday(today):
     schedule = WEEKDAY
@@ -108,12 +114,13 @@ def get_schedule_between(conn, from_stop, to_stop, direction):
   c = conn.cursor()
   c.execute("""
 SELECT c1.hour, c1.minute, c2.hour, c2.minute FROM caltrain AS c1, caltrain AS c2
-WHERE c1.day_type=? AND c1.direction=? and c1.stop=?
+WHERE c1.day_type=? AND c1.stop=?
    AND c1.train_num = c2.train_num
   AND c2.day_type=c1.day_type
-  AND c2.direction=c1.direction
   AND c2.stop=?
-  """, (schedule, direction, from_stop, to_stop))
+  AND ((c2.hour > c1.hour) OR
+       (c2.hour = c1.hour AND c2.minute > c1.minute))
+  """, (schedule, from_stop, to_stop))
 
 
   res = []
@@ -121,6 +128,13 @@ WHERE c1.day_type=? AND c1.direction=? and c1.stop=?
     res.append((time(leave_h, leave_m),
                 time(arrive_h, arrive_m)))
   return res
+
+def get_stops(conn):
+  c = conn.cursor()
+  c.execute("""
+  SELECT DISTINCT(stop) FROM caltrain ORDER BY stop
+  """)
+  return [s for (s,) in c]
 
 def print_table(rows):
   col_lens = [len(x) for x in rows[0]]
@@ -135,8 +149,8 @@ def print_table(rows):
     print
     
 
-def print_schedule(conn, from_stop, to_stop, direction):
-  sched = get_schedule_between(conn, from_stop, to_stop, direction)
+def print_schedule(conn, from_stop, to_stop):
+  sched = get_schedule_between(conn, from_stop, to_stop)
 
   table = [("", "Leave %s" % from_stop, "Arrive %s" % to_stop)]
   now = datetime.datetime.now().time()
@@ -149,12 +163,40 @@ def print_schedule(conn, from_stop, to_stop, direction):
     table.append( (marker, str(leave), str(arrive)) )
   print_table(table)
 
+def print_stops(conn):
+  stops = get_stops(conn)
+  for stop in stops:
+    print stop
+
 def _get_table_list(conn):
   return [name for (name,) in conn.execute("select name from sqlite_master where type='table'")]
 
-if __name__ == "__main__":
+def parse_args():
+  global __usage
+  op = OptionParser(usage = __usage)
+  op.add_option("-l", "--list-stops", dest="list_stops", action="store_true")
+  op.add_option("-f", "--from", dest='frm', action='store', type='string')
+  op.add_option("-t", "--to", dest='to', action='store', type='string')
+  opts, args = op.parse_args()
+  if len(args):
+    op.print_usage()
+    raise Exception("Unhandled args: %s" % repr(args))
+  if not opts.list_stops and (not opts.frm or not opts.to):
+    op.print_usage()
+    sys.exit(1)
+  return opts
+
+def main():
+  args = parse_args()
   conn = sqlite3.connect('/tmp/caltrain_schedule.db')
   if 'caltrain' not in _get_table_list(conn):
     sched = pull_schedule()
     save_schedule_to_sql(conn, sched)
-  print_schedule(conn, "Burlingame", "San Francisco", NORTHBOUND)
+  if args.list_stops:
+    print_stops(conn)
+  else:
+    print_schedule(conn, args.frm, args.to)
+
+if __name__ == "__main__":
+  main()
+
