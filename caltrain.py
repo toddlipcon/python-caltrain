@@ -98,11 +98,18 @@ def is_weekday(date):
   return date.weekday() < 5
 
 def is_holiday(date):
-  return (date.month, date.day) in [
+  if(date.month, date.day) in [
     (1, 1),
     (7, 4),
-    (12, 25)]
-# TODO add memorial day and thanksgiving
+    (12, 25)]:
+    return True
+  # last Monday in May is memorial day
+  if date.weekday() == 0 and date.month == 5:
+    next_mon = datetime.date.fromordinal(date.toordinal() + 7)
+    if next_mon.month == 6:
+      return True
+  return False
+# TODO add thanksgiving
 
 def get_schedule_between(conn, from_stop, to_stop):
   today = datetime.date.today()
